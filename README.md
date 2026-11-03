@@ -1,67 +1,52 @@
-# Senior Project I: Thai Word Censor Automation
+# Low-Resource Thai Profanity Detection and Censoring in Audio
 
-This project aims to create an automated system for censoring Thai profanity in videos using Natural Language Processing (NLP) and audio waveform analysis.
+Senior project at Assumption University of Thailand (team of 3). The system finds Thai profanity directly in the audio waveform and bleeps it out of uploaded audio or video, without transcribing the speech first.
 
-## Project Overview
+No public Thai profanity dataset exists, so the team collected and hand-labelled its own.
 
-The system processes video files to detect and censor Thai profanity in audio components.
+## What's here
 
-## First approach
+| Folder | Contents |
+|---|---|
+| `audio_processing/` | Audio conversion and background noise removal |
+| `dataset_creation/` | Scripts that build and check the labelled dataset |
+| `scripts/` | Fine-tuning experiments and windowed evaluation |
+| `server/` | Flask API (`POST /api/censor`) that returns the bleeped file |
+| `sr1-web/` | React + Vite upload page for the API |
+| `evaluation_results/`, `csv/`, `plots/` | Results and labels from earlier experiment runs |
 
-1. Data Collection:
-   - Gather a large dataset of Thai audio samples containing both clean and profane speech.
-   - Ensure the dataset is diverse and representative of different speakers, accents, and audio qualities.
-2. Data Preprocessing:
-   - Convert audio files to a consistent format (e.g., WAV) and sample rate.
-   - Extract audio features such as Mel-frequency cepstral coefficients (MFCCs) or spectrograms from the waveforms. (Not success doing it)
-3. Labeling:
-   - Annotate the dataset, marking the timestamps where profanity occurs. (0 non-profanity, 1 profanity)
-   - Create a list of Thai profanity words to be censored.
-4. Model Architecture:
-   - Use a deep learning model suitable for audio processing, such as:
-     - Convolutional Neural Networks (CNNs)
-     - Recurrent Neural Networks (RNNs) like LSTM or GRU
-     - Transformer-based models
-   - Or using Existing model: SpeechBrain, Wav2Vec 2.0, Keras Audio Classification Model.
-5. Training:
-   - Split the dataset into training, validation, and test sets.
-   - Train the model to identify profanity in the audio samples.
-6. Evaluation and Iteration:
-   - Test the model on the test set and real-world samples.
-   - Iterate and refine the model based on performance.
-7. Post-processing:
-   - Implement a method to censor or bleep out the identified profanity.
+The audio dataset and trained models are not in this repo.
 
-So, I am doing first one is waveform analysis approach which will detect word by word in audio format directly as you advised. 
+## Approach
 
-## Technologies Used
+- **Data:** 2,019 instances from 251 audio files (social media, YouTube, voice recordings), labelled by hand in Audacity. Clean speech vastly outweighs profanity.
+- **Model:** fine-tuned [`airesearch/wav2vec2-large-xlsr-53-th`](https://huggingface.co/airesearch/wav2vec2-large-xlsr-53-th) with a classification head and class-weighted cross-entropy.
+- **Preprocessing:** 16 kHz mono, pre-emphasis, spectral subtraction, Hamming window, RMS and z-score normalisation.
+- **Augmentation:** noise, time stretching, pitch shifting, volume scaling, mix-cut.
 
-- OpenCV / FFmpeg for video processing
-- PyDub / Librosa for audio processing
-- Google Speech Recognition API or CMU Sphinx for speech-to-text
-- PyThaiNLP for Thai language processing
-- Custom profanity detection algorithm
-- Librosa for waveform analysis
+## Results
 
-## Setup and Installation
+These are the final numbers from the project's research paper. The files in `evaluation_results/` come from earlier runs on a smaller dataset, so they differ.
 
-(Add instructions for setting up the project environment and installing dependencies)
+| Setup | Binary accuracy | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|
+| Rectangular window (baseline) | 51.69% | 46.30% | 3.55% | 6.80% |
+| Hamming window | 62.54% | 62.12% | 29.08% | 39.61% |
+| FFT enhancement | 52.44% | 61.54% | 5.67% | 10.39% |
+| Hamming + FFT | 50.55% | 50.00% | 1.42% | 2.76% |
+| Class-weighted + Hamming | 63.58% | 67.19% | 30.50% | 41.95% |
+| **Class-weighted + Hamming + mix-cut** | **66.43%** | 49.39% | 42.55% | **45.57%** |
 
-## Usage
+**Real-world performance is much lower.** We also tested 80+ window and stride settings and added IoU-based timing evaluation. Measured against the original word-level labels, F1 falls to **6.5%**, or **3.9%** with IoU at a 0.5 threshold. Window-level scores overstate performance. The main causes are class imbalance, short words that sound alike, and detections that split one word into fragments. The system is not ready for unattended censoring.
 
-(Add instructions on how to use the program, including input/output formats and any command-line arguments)
+## Running it
 
-## Future Improvements
+You need your own trained model at `server/models/CW_ham` and a `server/beep.wav`, since neither is committed.
 
-- Enhance speech recognition accuracy for Thai language
-- Improve profanity detection using machine learning techniques
-- Optimize performance for processing large video files
-- Implement real-time processing capabilities
+```bash
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu126
+pip install flask flask-cors pydub "moviepy<2" noisereduce  # used by the server, not in requirements.txt
+cd server && python app.py                                  # http://localhost:8080
 
-## Contributors
-
-(Add your name and any other contributors)
-
-## License
-
-(Add appropriate license information)
+cd sr1-web && pnpm install && pnpm dev                      # upload page
+```
